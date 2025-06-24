@@ -1,0 +1,56 @@
+INV
+a
+    NAND  a a  b
+b
+
+AND
+a b
+    NAND  a b  c
+    INV   c    d
+d
+
+OR
+a b
+    INV   a  c
+    INV   b  d
+    NAND  c d  e
+e
+
+XOR
+a b
+    NAND  a b  c
+    OR    a b  d
+    AND   c d  e
+e
+
+HalfAdder
+a b
+    XOR  a b  sum
+    AND  a b  carryOut
+sum carryOut
+
+FullAdder
+a b carryIn
+    HalfAdder  a b            sumA carryA
+    "          sumA carryIn   sumB carryB
+    OR         carryA carryB  carryOut
+    ->         sumB           sum
+sum carryOut
+
+8BitAdder
+a0 a1 a2 a3 a4 a5 a6 a7
+b0 b1 b2 b3 b4 b5 b6 b7
+    FullAdder  a0 b0 0   s0 c0
+    "          a1 b1 c0  s1 c1
+    "          a2 b2 c1  s2 c2
+    "          a3 b3 c2  s3 c3
+    "          a4 b4 c3  s4 c4
+    "          a5 b5 c4  s5 c5
+    "          a6 b6 c5  s6 c6
+    "          a7 b7 c6  s7 c
+s0 s1 s2 s3 s4 s5 s6 s7 c
+
+Main
+_
+    8BitAdder  1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0  a b c d e f g h
+a b c d e f g h
