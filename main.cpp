@@ -33,7 +33,20 @@ struct Chip
         cout << "Line " << p.line + 1 << " available signals: "; \
         for (const auto &pair : signals)                         \
             cout << pair.first << " ";                           \
+        cout << endl;                                            \
         throw runtime_error("Input " + signal + " not found");   \
+    }
+#define RESOLVE_SIGNAL(signal, out)        \
+    if (signal == "0" || signal == "1")    \
+    {                                      \
+        out = (signal == "1");             \
+    }                                      \
+    else                                   \
+    {                                      \
+        auto it = signals.find(signal);    \
+        if (it == signals.end())           \
+            THROW_SIGNAL_NOT_FOUND(signal) \
+        out = it->second;                  \
     }
 string repeat(int n, string s);
 vector<vector<bool>> print;
@@ -61,23 +74,30 @@ vector<bool> Chip::execute(const map<string, Chip> &chips, const vector<bool> &i
                 throw runtime_error("Line " + to_string(p.line + 1) + ": imbalanced");
             for (size_t j = 0; j < p.ins.size(); ++j)
             {
-                auto in = p.ins[j];
-                if (in == "0" || in == "1")
-                {
-                    signals[p.outs[j]] = (in == "1");
-                    continue;
-                }
-                auto it = signals.find(in);
-                if (it == signals.end())
-                    THROW_SIGNAL_NOT_FOUND(in)
-                signals[p.outs[j]] = it->second;
+                RESOLVE_SIGNAL(p.ins[j], signals[p.outs[j]])
             }
         }
-        else if (p.name == "NAND")
+        else if (p.name == "AND" || p.name == "NAND" || p.name == "OR" || p.name == "NOR")
         {
-            if (p.ins.size() != 2 || p.outs.size() != 1)
-                throw runtime_error("Line " + to_string(p.line + 1) + ": invalid NAND");
-            signals[p.outs[0]] = !(signals[p.ins[0]] && signals[p.ins[1]]);
+            if (p.outs.size() != 1)
+                throw runtime_error("Line " + to_string(p.line + 1) + ": invalid " + p.name);
+            bool OR = false;
+            bool AND = true;
+            for (const auto &in : p.ins)
+            {
+                bool x;
+                RESOLVE_SIGNAL(in, x)
+                OR = OR || x;
+                AND = AND && x;
+            }
+            if (p.name == "AND")
+                signals[p.outs[0]] = AND;
+            if (p.name == "NAND")
+                signals[p.outs[0]] = !AND;
+            if (p.name == "OR")
+                signals[p.outs[0]] = OR;
+            if (p.name == "NOR")
+                signals[p.outs[0]] = !OR;
             if (debug)
             {
                 cout << repeat(debug, "│") << "├╴" << p.name << " \033[32m";
@@ -85,6 +105,24 @@ vector<bool> Chip::execute(const map<string, Chip> &chips, const vector<bool> &i
                 cout << p.ins[1] << " " << signals[p.ins[1]] << "  \033[34m";
                 cout << p.outs[0] << " " << signals[p.outs[0]] << " \033[0m" << endl;
             }
+        }
+        else if (p.name == "PrintChar" || p.name == "Print8" || p.name == "PrintBits")
+        {
+            if (p.ins.size() != 8)
+                throw runtime_error("Line " + to_string(p.line + 1) + ": invalid");
+            uint8_t byte = 0;
+            for (size_t j = 0; j < 8; ++j)
+            {
+                bool x;
+                RESOLVE_SIGNAL(p.ins[j], x)
+                byte |= (x << (7 - j));
+                if (p.name == "PrintBits")
+                    cout << (x ? '1' : '0');
+            }
+            if (p.name == "PrintChar")
+                cout << "\033[32m" << static_cast<char>(byte) << "\033[0m";
+            else if (p.name == "Print8")
+                cout << "\033[34m" << to_string(byte) << "\033[0m";
         }
         else if (p.name == "Flush")
         {
@@ -95,15 +133,9 @@ vector<bool> Chip::execute(const map<string, Chip> &chips, const vector<bool> &i
             vector<bool> chipInputs;
             for (const auto &in : p.ins)
             {
-                if (in == "0" || in == "1")
-                {
-                    chipInputs.push_back(in == "1");
-                    continue;
-                }
-                auto it = signals.find(in);
-                if (it == signals.end())
-                    THROW_SIGNAL_NOT_FOUND(in)
-                chipInputs.push_back(it->second);
+                bool x;
+                RESOLVE_SIGNAL(in, x)
+                chipInputs.push_back(x);
             }
             if (p.name == "Print")
             {
@@ -168,6 +200,10 @@ int main(int argc, char **argv)
     for (int l = 0; l < lines.size(); ++l)
     {
         string line = lines[l];
+        if (line[0] == '#')
+        {
+            continue;
+        }
         string nextLine = (l + 1 < lines.size()) ? lines[l + 1] : "";
         if (line == "")
         {
@@ -232,7 +268,7 @@ int main(int argc, char **argv)
                 }
             }
             chips[chipName].procedures.push_back({l, thisProcName, procIns, procOuts});
-            if (nextLine[0] != ' ')
+            if (nextLine[0] != ' ' && nextLine[0] != '#')
             {
                 readProc = false;
                 readOuts = true;
@@ -300,11 +336,16 @@ void Flush()
         {
             bool c0 = (x < r0.size() && r0[x]);
             bool c1 = (x < r1.size() && r1[x]);
-            if (c0 && c1) cout << "█";
-            else if (c0) cout << "▀";
-            else if (c1) cout << "▄";
-            else cout << " ";
+            if (c0 && c1)
+                cout << "█";
+            else if (c0)
+                cout << "▀";
+            else if (c1)
+                cout << "▄";
+            else
+                cout << " ";
         }
         cout << endl;
     }
+    print.clear();
 }
