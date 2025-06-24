@@ -2,14 +2,9 @@
 #include <map>
 #include <string>
 #include <vector>
-#include <stdexcept>
-#include <algorithm>
-#include <ranges>
 #include <fstream>
 #include <sstream>
-#include <iterator>
-#include <functional>
-#include <ranges>
+#include <unordered_set>
 using namespace std;
 
 struct Procedure
@@ -23,6 +18,16 @@ struct Procedure
         : line(line), name(name), ins(ins), outs(outs) {}
 };
 
+struct Chip
+{
+    string name;
+    vector<string> ins;
+    vector<string> outs;
+    vector<Procedure> procedures;
+
+    vector<bool> execute(const map<string, Chip> &chips, const vector<bool> &inputs, int debug) const;
+};
+
 #define THROW_SIGNAL_NOT_FOUND(signal)                           \
     {                                                            \
         cout << "Line " << p.line + 1 << " available signals: "; \
@@ -30,52 +35,50 @@ struct Procedure
             cout << pair.first << " ";                           \
         throw runtime_error("Input " + signal + " not found");   \
     }
-void DebugSignals(const map<std::string, bool> signals)
+string repeat(int n, string s);
+
+vector<bool> Chip::execute(const map<string, Chip> &chips, const vector<bool> &inputs, int debug) const
 {
-    cout << "Signals: " << endl;
-    for (auto &s : signals)
+    map<string, bool> signals;
+    for (const auto &out : outs)
+        signals[out] = false;
+    for (size_t i = 0; i < ins.size(); ++i)
+        signals[ins[i]] = inputs[i];
+    if (debug)
     {
-        cout << " " << s.second << " " << s.first << endl;
+        cout << repeat(debug, "│") << "┌╴" << name << "  \033[32m";
+        for (const auto &in : ins)
+            cout << in << " " << signals[in] << "  ";
+        cout << "\033[0m" << endl;
     }
-}
-
-struct Chip
-{
-    vector<string> ins;
-    vector<string> outs;
-    vector<Procedure> procedures;
-
-    vector<bool> execute(const map<string, Chip> &chips, const vector<bool> &inputs) const
+    for (const auto &p : procedures)
     {
-        map<string, bool> signals;
-        for (const auto &out : outs)
-            signals[out] = false;
-        for (size_t i = 0; i < ins.size(); ++i)
-            signals[ins[i]] = inputs[i];
-        for (const auto &p : procedures)
+        if (p.name == "->")
         {
-            if (p.name == "->")
+            if (p.ins.size() != p.outs.size())
+                throw runtime_error("Line " + to_string(p.line + 1) + ": imbalanced");
+            for (size_t j = 0; j < p.ins.size(); ++j)
             {
-                if (p.ins.size() != p.outs.size())
-                    throw runtime_error("Line " + to_string(p.line + 1) + ": imbalanced");
-                for (size_t j = 0; j < p.ins.size(); ++j)
-                {
-                    auto it = signals.find(p.ins[j]);
-                    if (it == signals.end())
-                        THROW_SIGNAL_NOT_FOUND(p.ins[j])
-                    signals[p.outs[j]] = it->second;
-                }
-                continue;
+                auto it = signals.find(p.ins[j]);
+                if (it == signals.end())
+                    THROW_SIGNAL_NOT_FOUND(p.ins[j])
+                signals[p.outs[j]] = it->second;
             }
-            else if (p.name == "NAND")
-            {
-                if (p.ins.size() != 2 || p.outs.size() != 1)
-                    throw runtime_error("Line " + to_string(p.line + 1) + ": invalid NAND");
-                // cout << "Executing chip NAND with inputs: " << signals[p.ins[0]] << " " << signals[p.ins[1]] << endl;
-                signals[p.outs[0]] = !(signals[p.ins[0]] && signals[p.ins[1]]);
-                // cout << " NAND outputs: " << signals[p.outs[0]] << endl;
-                continue;
+        }
+        else if (p.name == "NAND")
+        {
+            if (p.ins.size() != 2 || p.outs.size() != 1)
+                throw runtime_error("Line " + to_string(p.line + 1) + ": invalid NAND");
+            signals[p.outs[0]] = !(signals[p.ins[0]] && signals[p.ins[1]]);
+            if (debug) {
+                cout << repeat(debug, "│") << "├╴" << p.name << " \033[32m";
+                cout << p.ins[0] << " " << signals[p.ins[0]] << "  ";
+                cout << p.ins[1] << " " << signals[p.ins[1]] << "  \033[34m";
+                cout << p.outs[0] << " " << signals[p.outs[0]] << " \033[0m" << endl;
             }
+        }
+        else
+        {
             auto chip = chips.find(p.name);
             if (chip == chips.end())
                 throw runtime_error("Line " + to_string(p.line + 1) + ": chip " + p.name + " not found");
@@ -92,26 +95,24 @@ struct Chip
                     THROW_SIGNAL_NOT_FOUND(in)
                 chipInputs.push_back(it->second);
             }
-            // cout << "Executing chip " << p.name << " with inputs: ";
-            // for (bool input : chipInputs)
-            //     cout << (input ? 1 : 0) << " ";
-            // cout << endl;
-            vector<bool> chipOutputs = chip->second.execute(chips, chipInputs);
-            // cout << " " << p.name << " outputs: ";
-            // for (bool output : chipOutputs)
-            //     cout << (output ? 1 : 0) << " ";
-            // cout << endl;
+            vector<bool> chipOutputs = chip->second.execute(chips, chipInputs, debug + !!debug);
             for (size_t j = 0; j < p.outs.size(); ++j)
                 signals[p.outs[j]] = chipOutputs[j];
         }
-        vector<bool> outputs(outs.size());
-        for (size_t i = 0; i < outs.size(); ++i)
-            if (signals.find(outs[i]) != signals.end())
-                outputs[i] = signals[outs[i]];
-        // DebugSignals(signals);
-        return outputs;
     }
-};
+    vector<bool> outputs(outs.size());
+    for (size_t i = 0; i < outs.size(); ++i)
+        if (signals.find(outs[i]) != signals.end())
+            outputs[i] = signals[outs[i]];
+    if (debug)
+    {
+        cout << repeat(debug, "│") << "└╴\033[34m";
+        for (auto &s : signals)
+            cout << s.first << " " << s.second << "  ";
+        cout << "\033[0m" << endl;
+    }
+    return outputs;
+}
 
 void EchoFile(const map<string, Chip> &chips);
 
@@ -133,7 +134,7 @@ int main(int argc, char **argv)
 {
     if (argc < 2)
     {
-        throw runtime_error("Usage: " + string(argv[0]) + " <filename> [--echo-file]");
+        throw runtime_error("Usage: " + string(argv[0]) + " <filename> [--echo-file] [--debug]");
     }
     string filename(argv[1]);
     vector<string> lines = readFileToVector(filename);
@@ -155,7 +156,7 @@ int main(int argc, char **argv)
         else if (newChip)
         {
             chipName = line;
-            chips[chipName] = Chip();
+            chips[chipName] = Chip{chipName, {}, {}, {}};
             newChip = false;
             readIns = true;
         }
@@ -178,8 +179,8 @@ int main(int argc, char **argv)
         }
         else if (readProc)
         {
-            Procedure proc(l, "", vector<string>(), vector<string>());
-            bool readProcName = true;
+            vector<string> procIns, procOuts;
+            string thisProcName = "";
             bool readProcIns = false;
             bool readProcOuts = false;
             stringstream ss(line);
@@ -188,30 +189,29 @@ int main(int argc, char **argv)
             {
                 if (chunk == "")
                 {
-                    if (proc.ins.size() && readProcIns)
+                    if (procIns.size() && readProcIns)
                     {
                         readProcIns = false;
                         readProcOuts = true;
                     }
                 }
-                else if (readProcName)
+                else if (thisProcName.empty())
                 {
                     if (chunk != "\"")
                         procName = chunk;
-                    proc.name = procName;
-                    readProcName = false;
+                    thisProcName = procName;
                     readProcIns = true;
                 }
                 else if (readProcIns)
                 {
-                    proc.ins.push_back(chunk);
+                    procIns.push_back(chunk);
                 }
                 else if (readProcOuts)
                 {
-                    proc.outs.push_back(chunk);
+                    procOuts.push_back(chunk);
                 }
             }
-            chips[chipName].procedures.push_back(proc);
+            chips[chipName].procedures.push_back({l, thisProcName, procIns, procOuts});
             if (nextLine[0] != ' ')
             {
                 readProc = false;
@@ -220,10 +220,14 @@ int main(int argc, char **argv)
         }
     }
 
-    if (argc == 3 && string(argv[2]) == "--echo-file")
+    unordered_set<string> args(argv + 1, argv + argc);
+    if (args.count("--echo-file"))
         EchoFile(chips);
+    auto debug = args.count("--debug");
+    if (debug)
+        cout << "┌╴Main" << endl;
 
-    vector<bool> outs = chips["Main"].execute(chips, {false});
+    vector<bool> outs = chips["Main"].execute(chips, {false}, debug);
     for (bool out : outs)
         cout << (out ? 1 : 0);
     cout << endl;
@@ -254,4 +258,12 @@ void EchoFile(const map<string, Chip> &chips)
         cout << endl
              << endl;
     }
+}
+
+string repeat(int n, string s)
+{
+    string result;
+    for (int i = 0; i < n; ++i)
+        result += s;
+    return result;
 }
