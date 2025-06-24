@@ -36,6 +36,8 @@ struct Chip
         throw runtime_error("Input " + signal + " not found");   \
     }
 string repeat(int n, string s);
+vector<vector<bool>> print;
+void Flush();
 
 vector<bool> Chip::execute(const map<string, Chip> &chips, const vector<bool> &inputs, int debug) const
 {
@@ -59,9 +61,15 @@ vector<bool> Chip::execute(const map<string, Chip> &chips, const vector<bool> &i
                 throw runtime_error("Line " + to_string(p.line + 1) + ": imbalanced");
             for (size_t j = 0; j < p.ins.size(); ++j)
             {
-                auto it = signals.find(p.ins[j]);
+                auto in = p.ins[j];
+                if (in == "0" || in == "1")
+                {
+                    signals[p.outs[j]] = (in == "1");
+                    continue;
+                }
+                auto it = signals.find(in);
                 if (it == signals.end())
-                    THROW_SIGNAL_NOT_FOUND(p.ins[j])
+                    THROW_SIGNAL_NOT_FOUND(in)
                 signals[p.outs[j]] = it->second;
             }
         }
@@ -70,18 +78,20 @@ vector<bool> Chip::execute(const map<string, Chip> &chips, const vector<bool> &i
             if (p.ins.size() != 2 || p.outs.size() != 1)
                 throw runtime_error("Line " + to_string(p.line + 1) + ": invalid NAND");
             signals[p.outs[0]] = !(signals[p.ins[0]] && signals[p.ins[1]]);
-            if (debug) {
+            if (debug)
+            {
                 cout << repeat(debug, "│") << "├╴" << p.name << " \033[32m";
                 cout << p.ins[0] << " " << signals[p.ins[0]] << "  ";
                 cout << p.ins[1] << " " << signals[p.ins[1]] << "  \033[34m";
                 cout << p.outs[0] << " " << signals[p.outs[0]] << " \033[0m" << endl;
             }
         }
+        else if (p.name == "Flush")
+        {
+            Flush();
+        }
         else
         {
-            auto chip = chips.find(p.name);
-            if (chip == chips.end())
-                throw runtime_error("Line " + to_string(p.line + 1) + ": chip " + p.name + " not found");
             vector<bool> chipInputs;
             for (const auto &in : p.ins)
             {
@@ -95,9 +105,19 @@ vector<bool> Chip::execute(const map<string, Chip> &chips, const vector<bool> &i
                     THROW_SIGNAL_NOT_FOUND(in)
                 chipInputs.push_back(it->second);
             }
-            vector<bool> chipOutputs = chip->second.execute(chips, chipInputs, debug + !!debug);
-            for (size_t j = 0; j < p.outs.size(); ++j)
-                signals[p.outs[j]] = chipOutputs[j];
+            if (p.name == "Print")
+            {
+                print.push_back(chipInputs);
+            }
+            else
+            {
+                auto chip = chips.find(p.name);
+                if (chip == chips.end())
+                    throw runtime_error("Line " + to_string(p.line + 1) + ": chip " + p.name + " not found");
+                vector<bool> chipOutputs = chip->second.execute(chips, chipInputs, debug + !!debug);
+                for (size_t j = 0; j < p.outs.size(); ++j)
+                    signals[p.outs[j]] = chipOutputs[j];
+            }
         }
     }
     vector<bool> outputs(outs.size());
@@ -227,10 +247,7 @@ int main(int argc, char **argv)
     if (debug)
         cout << "┌╴Main" << endl;
 
-    vector<bool> outs = chips["Main"].execute(chips, {false}, debug);
-    for (bool out : outs)
-        cout << (out ? 1 : 0);
-    cout << endl;
+    chips["Main"].execute(chips, {false}, debug);
 
     return 0;
 }
@@ -266,4 +283,28 @@ string repeat(int n, string s)
     for (int i = 0; i < n; ++i)
         result += s;
     return result;
+}
+
+void Flush()
+{
+    if (print.empty())
+        return;
+    if (print.size() % 2 != 0)
+        print.push_back(vector<bool>{});
+    for (int y = 0; y < print.size() - 1; y += 2)
+    {
+        const auto &r0 = print[y];
+        const auto &r1 = print[y + 1];
+        auto longest = max(r0.size(), r1.size());
+        for (int x = 0; x < longest; ++x)
+        {
+            bool c0 = (x < r0.size() && r0[x]);
+            bool c1 = (x < r1.size() && r1[x]);
+            if (c0 && c1) cout << "█";
+            else if (c0) cout << "▀";
+            else if (c1) cout << "▄";
+            else cout << " ";
+        }
+        cout << endl;
+    }
 }

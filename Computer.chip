@@ -52,5 +52,11 @@ s0 s1 s2 s3 s4 s5 s6 s7 c
 
 Main
 _
-    8BitAdder  1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0  a b c d e f g h
-a b c d e f g h
+    ->         1 0 0 1 0 0 0 0  a0 a1 a2 a3 a4 a5 a6 a7
+    ->         1 0 0 0 1 0 0 0  b0 b1 b2 b3 b4 b5 b6 b7
+    8BitAdder  a0 a1 a2 a3 a4 a5 a6 a7 b0 b1 b2 b3 b4 b5 b6 b7  s0 s1 s2 s3 s4 s5 s6 s7
+    Print      a0 a1 a2 a3 a4 a5 a6 a7
+    Print      b0 b1 b2 b3 b4 b5 b6 b7
+    Print
+    Print      s0 s1 s2 s3 s4 s5 s6 s7
+    Flush
