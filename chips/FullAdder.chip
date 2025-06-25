@@ -1,0 +1,7 @@
+FullAdder
+a b carryIn
+    HalfAdder  a b            sumA carryA
+    "          sumA carryIn   sumB carryB
+    OR         carryA carryB  carryOut
+    ->         sumB           sum
+sum carryOut

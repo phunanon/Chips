@@ -1,0 +1,6 @@
+XOR
+a b
+    NAND  a b  c
+    OR    a b  d
+    AND   c d  e
+e

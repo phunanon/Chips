@@ -1,0 +1,12 @@
+8BitAdder
+a7 a6 a5 a4 a3 a2 a1 a0
+b7 b6 b5 b4 b3 b2 b1 b0
+    FullAdder  a0 b0 0   s0 c0
+    "          a1 b1 c0  s1 c1
+    "          a2 b2 c1  s2 c2
+    "          a3 b3 c2  s3 c3
+    "          a4 b4 c3  s4 c4
+    "          a5 b5 c4  s5 c5
+    "          a6 b6 c5  s6 c6
+    "          a7 b7 c6  s7 c
+s7 s6 s5 s4 s3 s2 s1 s0 c

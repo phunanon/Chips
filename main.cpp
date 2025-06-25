@@ -5,17 +5,19 @@
 #include <fstream>
 #include <sstream>
 #include <unordered_set>
+#include <algorithm>
 using namespace std;
 
 struct Procedure
 {
+    string fileName;
     int line;
     string name;
     vector<string> ins;
     vector<string> outs;
 
-    Procedure(int line, string name, vector<string> ins, vector<string> outs)
-        : line(line), name(name), ins(ins), outs(outs) {}
+    Procedure(string fileName, int line, string name, vector<string> ins, vector<string> outs)
+        : fileName(fileName), line(line), name(name), ins(ins), outs(outs) {}
 };
 
 struct Chip
@@ -28,13 +30,13 @@ struct Chip
     vector<bool> execute(const map<string, Chip> &chips, const vector<bool> &inputs, int debug) const;
 };
 
-#define THROW_SIGNAL_NOT_FOUND(signal)                           \
-    {                                                            \
-        cout << "Line " << p.line + 1 << " available signals: "; \
-        for (const auto &pair : signals)                         \
-            cout << pair.first << " ";                           \
-        cout << endl;                                            \
-        throw runtime_error("Input " + signal + " not found");   \
+#define THROW_SIGNAL_NOT_FOUND(signal)                                     \
+    {                                                                      \
+        cout << p.fileName << ":" << p.line + 1 << " available signals: "; \
+        for (const auto &pair : signals)                                   \
+            cout << pair.first << " ";                                     \
+        cout << endl;                                                      \
+        throw runtime_error("No signal \"" + signal + "\"");               \
     }
 #define RESOLVE_SIGNAL(signal, out)        \
     if (signal == "0" || signal == "1")    \
@@ -48,6 +50,11 @@ struct Chip
             THROW_SIGNAL_NOT_FOUND(signal) \
         out = it->second;                  \
     }
+#define COUT_SIGNAL(signal)                                                                                   \
+    "\033[37;"                                                                                                \
+        << ((signals.find(signal) != signals.end() && signals.at(signal)) || signal == "1" ? "42m " : "41m ") \
+        << signal << " \033[0m"
+
 string repeat(int n, string s);
 vector<vector<bool>> print;
 void Flush();
@@ -55,23 +62,26 @@ void Flush();
 vector<bool> Chip::execute(const map<string, Chip> &chips, const vector<bool> &inputs, int debug) const
 {
     map<string, bool> signals;
-    for (const auto &out : outs)
-        signals[out] = false;
+
+    if (ins.size() != inputs.size())
+        throw runtime_error(name + ": arity mismatch, expected " + to_string(ins.size()) + ", got " + to_string(inputs.size()));
     for (size_t i = 0; i < ins.size(); ++i)
         signals[ins[i]] = inputs[i];
+
     if (debug)
     {
-        cout << repeat(debug, "│") << "┌╴" << name << "  \033[32m";
+        cout << repeat(debug - 1, "│") << "┌╴" << name << " ";
         for (const auto &in : ins)
-            cout << in << " " << signals[in] << "  ";
-        cout << "\033[0m" << endl;
+            cout << COUT_SIGNAL(in);
+        cout << endl;
     }
+
     for (const auto &p : procedures)
     {
         if (p.name == "->")
         {
             if (p.ins.size() != p.outs.size())
-                throw runtime_error("Line " + to_string(p.line + 1) + ": imbalanced");
+                throw runtime_error(p.fileName + ":" + to_string(p.line + 1) + ": imbalanced");
             for (size_t j = 0; j < p.ins.size(); ++j)
             {
                 RESOLVE_SIGNAL(p.ins[j], signals[p.outs[j]])
@@ -80,7 +90,7 @@ vector<bool> Chip::execute(const map<string, Chip> &chips, const vector<bool> &i
         else if (p.name == "AND" || p.name == "NAND" || p.name == "OR" || p.name == "NOR")
         {
             if (p.outs.size() != 1)
-                throw runtime_error("Line " + to_string(p.line + 1) + ": invalid " + p.name);
+                throw runtime_error(p.fileName + ":" + to_string(p.line + 1) + ": invalid " + p.name);
             bool OR = false;
             bool AND = true;
             for (const auto &in : p.ins)
@@ -100,18 +110,18 @@ vector<bool> Chip::execute(const map<string, Chip> &chips, const vector<bool> &i
                 signals[p.outs[0]] = !OR;
             if (debug)
             {
-                cout << repeat(debug, "│") << "├╴" << p.name << " \033[32m";
-                cout << p.ins[0] << " " << signals[p.ins[0]] << "  ";
-                cout << p.ins[1] << " " << signals[p.ins[1]] << "  \033[34m";
-                cout << p.outs[0] << " " << signals[p.outs[0]] << " \033[0m" << endl;
+                cout << repeat(debug - 1, "│") << "├╴" << p.name << string(5 - p.name.length(), ' ');
+                cout << COUT_SIGNAL(p.ins[0]);
+                cout << COUT_SIGNAL(p.ins[1]) << " ➤  ";
+                cout << COUT_SIGNAL(p.outs[0]) << endl;
             }
         }
         else if (p.name == "PrintChar" || p.name == "Print8" || p.name == "PrintBits")
         {
-            if (p.ins.size() != 8)
-                throw runtime_error("Line " + to_string(p.line + 1) + ": invalid");
+            if (p.name != "PrintBits" && p.ins.size() != 8)
+                throw runtime_error(p.fileName + ":" + to_string(p.line + 1) + ": needs 8 inputs");
             uint8_t byte = 0;
-            for (size_t j = 0; j < 8; ++j)
+            for (size_t j = 0; j < p.ins.size(); ++j)
             {
                 bool x;
                 RESOLVE_SIGNAL(p.ins[j], x)
@@ -145,7 +155,7 @@ vector<bool> Chip::execute(const map<string, Chip> &chips, const vector<bool> &i
             {
                 auto chip = chips.find(p.name);
                 if (chip == chips.end())
-                    throw runtime_error("Line " + to_string(p.line + 1) + ": chip " + p.name + " not found");
+                    throw runtime_error(p.fileName + ":" + to_string(p.line + 1) + ": chip " + p.name + " not found");
                 vector<bool> chipOutputs = chip->second.execute(chips, chipInputs, debug + !!debug);
                 for (size_t j = 0; j < p.outs.size(); ++j)
                     signals[p.outs[j]] = chipOutputs[j];
@@ -155,18 +165,25 @@ vector<bool> Chip::execute(const map<string, Chip> &chips, const vector<bool> &i
     vector<bool> outputs(outs.size());
     for (size_t i = 0; i < outs.size(); ++i)
         if (signals.find(outs[i]) != signals.end())
-            outputs[i] = signals[outs[i]];
+            outputs[i] = signals.at(outs[i]);
     if (debug)
     {
-        cout << repeat(debug, "│") << "└╴\033[34m";
+        cout << repeat(debug - 1, "│") << "└╴➤    ";
+        vector<string> nonOuts;
         for (auto &s : signals)
-            cout << s.first << " " << s.second << "  ";
-        cout << "\033[0m" << endl;
+            if (find(outs.begin(), outs.end(), s.first) == outs.end())
+                nonOuts.push_back(s.first);
+        for (const auto &out : outs)
+            cout << COUT_SIGNAL(out);
+        cout << "  ";
+        for (const auto &nonOut : nonOuts)
+            cout << COUT_SIGNAL(nonOut);
+        cout << endl;
     }
     return outputs;
 }
 
-void EchoFile(const map<string, Chip> &chips);
+void EchoChips(const map<string, Chip> &chips);
 
 vector<string> readFileToVector(const string &filename)
 {
@@ -182,54 +199,60 @@ vector<string> readFileToVector(const string &filename)
     return lines;
 }
 
-int main(int argc, char **argv)
+void Main(unordered_set<string> &files, unordered_set<string> &flags, vector<bool> &argsForMain)
 {
-    if (argc < 2)
+    vector<tuple<string, string>> lines;
+    for (const auto &fileName : files)
     {
-        throw runtime_error("Usage: " + string(argv[0]) + " <filename> [--echo-file] [--debug]");
+        auto fileLines = readFileToVector(fileName);
+        for (const auto &line : fileLines)
+        {
+            lines.emplace_back(fileName, line);
+        }
+        lines.emplace_back(fileName, "");
     }
-    string filename(argv[1]);
-    vector<string> lines = readFileToVector(filename);
-    map<string, Chip> chips;
 
+    map<string, Chip> chips;
     bool newChip = true;
-    bool readIns = false;
+    bool readInps = false;
     bool readProc = false;
     bool readOuts = false;
     string chipName, procName;
     for (int l = 0; l < lines.size(); ++l)
     {
-        string line = lines[l];
+        string fileName = get<0>(lines[l]);
+        string line = get<1>(lines[l]);
         if (line[0] == '#')
-        {
             continue;
-        }
-        string nextLine = (l + 1 < lines.size()) ? lines[l + 1] : "";
+        string nextLine = (l + 1 < lines.size()) ? get<1>(lines[l + 1]) : "";
         if (line == "")
         {
             newChip = true;
+            readOuts = false;
         }
         else if (newChip)
         {
             chipName = line;
             chips[chipName] = Chip{chipName, {}, {}, {}};
             newChip = false;
-            readIns = true;
+            auto doReadInps = nextLine[0] != ' ';
+            readInps = doReadInps;
+            readProc = !doReadInps;
         }
-        else if (readIns || readOuts)
+        else if (readInps || readOuts)
         {
             stringstream ss(line);
             string chunk;
             while (getline(ss, chunk, ' '))
                 if (chunk != "")
-                    if (readIns)
+                    if (readInps)
                         chips[chipName].ins.push_back(chunk);
                     else if (readOuts)
                         chips[chipName].outs.push_back(chunk);
             if (nextLine[0] == ' ' || nextLine[0] == '\0')
             {
-                readProc = readIns;
-                readIns = false;
+                readProc = readInps;
+                readInps = false;
                 readOuts = false;
             }
         }
@@ -237,7 +260,7 @@ int main(int argc, char **argv)
         {
             vector<string> procIns, procOuts;
             string thisProcName = "";
-            bool readProcIns = false;
+            bool readProcInps = false;
             bool readProcOuts = false;
             stringstream ss(line);
             string chunk;
@@ -245,9 +268,9 @@ int main(int argc, char **argv)
             {
                 if (chunk == "")
                 {
-                    if (procIns.size() && readProcIns)
+                    if (procIns.size() && readProcInps)
                     {
-                        readProcIns = false;
+                        readProcInps = false;
                         readProcOuts = true;
                     }
                 }
@@ -256,9 +279,9 @@ int main(int argc, char **argv)
                     if (chunk != "\"")
                         procName = chunk;
                     thisProcName = procName;
-                    readProcIns = true;
+                    readProcInps = true;
                 }
-                else if (readProcIns)
+                else if (readProcInps)
                 {
                     procIns.push_back(chunk);
                 }
@@ -267,7 +290,7 @@ int main(int argc, char **argv)
                     procOuts.push_back(chunk);
                 }
             }
-            chips[chipName].procedures.push_back({l, thisProcName, procIns, procOuts});
+            chips[chipName].procedures.push_back({fileName, l, thisProcName, procIns, procOuts});
             if (nextLine[0] != ' ' && nextLine[0] != '#')
             {
                 readProc = false;
@@ -276,19 +299,47 @@ int main(int argc, char **argv)
         }
     }
 
-    unordered_set<string> args(argv + 1, argv + argc);
-    if (args.count("--echo-file"))
-        EchoFile(chips);
-    auto debug = args.count("--debug");
-    if (debug)
-        cout << "┌╴Main" << endl;
+    auto debug = flags.count("--debug");
+    auto echoChips = flags.count("--echo-chips");
+    if (echoChips)
+        EchoChips(chips);
 
-    chips["Main"].execute(chips, {false}, debug);
+    if (chips.find("Main") == chips.end())
+    {
+        cout << "Chip \"Main\" not found." << endl;
+    }
+    else
+    {
+        chips["Main"].execute(chips, argsForMain, debug);
+    }
+}
+
+int main(int argc, char **argv)
+{
+    vector<string> args(argv + 1, argv + argc);
+    unordered_set<string> files;
+    unordered_set<string> flags;
+    vector<bool> argsForMain;
+
+    for (const auto &arg : args)
+        if (arg[0] == '-')
+            flags.insert(arg);
+        else if (all_of(arg.begin(), arg.end(), [](const char &s)
+                        { return s == '0' || s == '1'; }))
+            for (const auto &c : arg)
+                argsForMain.push_back(c == '1');
+        else
+            files.insert(arg);
+
+    if (!files.size())
+        throw runtime_error("Usage: " + string(argv[0]) + " <filenames> [--echo-file] [--debug]");
+
+    Main(files, flags, argsForMain);
 
     return 0;
 }
 
-void EchoFile(const map<string, Chip> &chips)
+void EchoChips(const map<string, Chip> &chips)
 {
     for (const auto &pair : chips)
     {

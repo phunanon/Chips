@@ -1,0 +1,5 @@
+HalfAdder
+a b
+    XOR  a b  sum
+    AND  a b  carryOut
+sum carryOut
